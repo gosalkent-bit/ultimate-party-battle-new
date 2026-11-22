@@ -6,42 +6,81 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-22.04
     container:
       image: barichello/godot-ci:4.3
-
-    env:
-      HOME: /root
+      env:
+        HOME: /root
 
     steps:
       - name: Checkout project
         uses: actions/checkout@v4
 
-      - name: Verify Android tools
+      - name: Configure Android build
+        shell: bash
+        env:
+          ANDROID_HOME: /usr/lib/android-sdk
+          ANDROID_SDK_ROOT: /usr/lib/android-sdk
+          JAVA_HOME: /opt/java/openjdk
         run: |
-          echo "Checking Godot templates"
-          ls -la /root/.local/share/godot/export_templates/4.3.stable
-          echo "Checking Java"
-          java -version
-          echo "Checking Android SDK"
-          ls /usr/lib/android-sdk/build-tools
-          echo "Checking debug keystore"
-          ls -l /root/debug.keystore
+          set -e
+
+          export ANDROID_HOME="/usr/lib/android-sdk"
+          export ANDROID_SDK_ROOT="$ANDROID_HOME"
+          export PATH="$JAVA_HOME/bin:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/build-tools/33.0.2:$PATH"
+
+          mkdir -p /root/.config/godot
+          cat > /root/.config/godot/editor_settings-4.tres <<'EOF'
+[gd_resource type="EditorSettings" format=3]
+
+[resource]
+export/android/android_sdk_path = "/usr/lib/android-sdk"
+export/android/debug_keystore = "/root/debug.keystore"
+export/android/debug_keystore_user = "androiddebugkey"
+export/android/debug_keystore_pass = "android"
+EOF
+
+          mkdir -p build
 
       - name: Prepare project
-        run: |
-          godot --headless --editor --path . --quit
+        shell: bash
+        run: godot --headless --editor --path . --quit
 
       - name: Build Android APK
+        shell: bash
+        env:
+          ANDROID_HOME: /usr/lib/android-sdk
+          ANDROID_SDK_ROOT: /usr/lib/android-sdk
+          JAVA_HOME: /opt/java/openjdk
+          GODOT_ANDROID_KEYSTORE_DEBUG_PATH: /root/debug.keystore
+          GODOT_ANDROID_KEYSTORE_DEBUG_USER: androiddebugkey
+          GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD: android
         run: |
-          mkdir -p build
-          godot --headless --path . --export-debug "Android" build/UltimatePartyBattle.apk
+          set -e
+          export PATH="$JAVA_HOME/bin:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/build-tools/33.0.2:$PATH"
+
+          java -version
+          godot --version
+          ls -la /root/debug.keystore
+          ls -la "$ANDROID_HOME/build-tools/33.0.2"
+
+          godot --headless --verbose --path . --export-debug "Android" build/UltimatePartyBattle.apk
+
+      - name: Verify APK
+        shell: bash
+        run: |
+          test -s build/UltimatePartyBattle.apk
+          ls -lh build/UltimatePartyBattle.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: UltimatePartyBattle-APK
+          name: UltimatePartyBattle-Android-APK
           path: build/UltimatePartyBattle.apk
+          if-no-files-found: error
           retention-days: 7
